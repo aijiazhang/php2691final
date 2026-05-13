@@ -1,0 +1,308 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(zellkonverter)
+library(SingleCellExperiment)
+
+kidney_non_enrich <- readH5AD("~/Desktop/adata_kidney_non_enrich_qc_r_with_counts.h5ad")
+kidney_non_enrich
+```
+
+```{r}
+# Metadata
+meta <- as.data.frame(colData(kidney_non_enrich))
+
+# Raw counts from the "counts" assay
+raw_counts <- assay(kidney_non_enrich, "counts")
+
+# Create Seurat object
+kidney_seurat <- CreateSeuratObject(
+  counts = raw_counts,
+  meta.data = meta
+)
+
+# Split by sample-level batch
+kidney.list <- SplitObject(kidney_seurat, split.by = "sample_id")
+
+# Normalize and find HVGs within each batch
+kidney.list <- lapply(kidney.list, function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(
+    x,
+    selection.method = "vst",
+    nfeatures = 2000,
+    verbose = FALSE
+  )
+  x
+})
+
+# Select integration features
+features <- SelectIntegrationFeatures(object.list = kidney.list)
+
+# Run scaling and PCA for RPCA
+kidney.list <- lapply(kidney.list, function(x) {
+  x <- ScaleData(x, features = features, verbose = FALSE)
+  x <- RunPCA(x, features = features, verbose = FALSE)
+  x
+})
+
+# Find anchors with RPCA
+kidney.anchors <- FindIntegrationAnchors(
+  object.list = kidney.list,
+  anchor.features = features,
+  reduction = "rpca"
+)
+
+# Integrate data
+kidney.integrated <- IntegrateData(anchorset = kidney.anchors)
+
+# Downstream analysis on integrated assay
+DefaultAssay(kidney.integrated) <- "integrated"
+
+kidney.integrated <- ScaleData(kidney.integrated, verbose = FALSE)
+kidney.integrated <- RunPCA(kidney.integrated, npcs = 30, verbose = FALSE)
+kidney.integrated <- RunUMAP(kidney.integrated, reduction = "pca", dims = 1:30)
+kidney.integrated <- FindNeighbors(kidney.integrated, reduction = "pca", dims = 1:30)
+kidney.integrated <- FindClusters(kidney.integrated, resolution = 0.5)
+```
+
+```{r}
+DimPlot(
+  kidney.integrated,
+  reduction = "umap",
+  group.by = "sample_id",
+  label = FALSE,
+  pt.size = 0.3
+)
+
+DimPlot(
+  kidney.integrated,
+  reduction = "umap",
+  group.by = "cell_type",
+  label = FALSE,
+  pt.size = 0.3
+)
+```
+
+```{r}
+celltype_counts = adata_kidney_non_enrich_qc.obs["cell_type"].value_counts()
+celltype_props = adata_kidney_non_enrich_qc.obs["cell_type"].value_counts(normalize=True)
+
+print(celltype_counts)
+print(celltype_props)
+```
+
+```{r}
+# Load package
+library(SeuratDisk)
+
+# Step 1: Save Seurat object to Desktop as .h5Seurat
+SaveH5Seurat(
+  kidney.integrated,
+  filename = "~/Desktop/kidney.integrated_nonenrich.h5Seurat",
+  overwrite = TRUE
+)
+
+# Step 2: Convert .h5Seurat to .h5ad
+Convert(
+  "~/Desktop/kidney.integrated_nonenrich.h5Seurat",
+  dest = "h5ad",
+  overwrite = TRUE
+)
+```
+
+
+```{r}
+install.packages("mclust")
+install.packages("aricode")
+```
+```{r}
+colnames(kidney.integrated@meta.data)
+table(kidney.integrated@meta.data$seurat_clusters)
+table(kidney.integrated@meta.data$cell_type)
+```
+
+```{r}
+library(mclust)
+library(aricode)
+
+true_labels <- kidney.integrated@meta.data$cell_type
+cluster_labels <- kidney.integrated@meta.data$integrated_snn_res.0.5
+
+ari_value <- adjustedRandIndex(true_labels, cluster_labels)
+nmi_value <- NMI(true_labels, cluster_labels)
+
+cat("ARI:", ari_value, "\n")
+cat("NMI:", nmi_value, "\n")
+```
+
+
+```{r}
+library(lisi)
+
+# Use integrated PCA embedding
+emb <- Embeddings(kidney.integrated, "pca")[, 1:30]
+
+# Metadata
+meta <- kidney.integrated@meta.data
+
+# Compute LISI for both batch and cell type
+lisi_res <- compute_lisi(
+  X = emb,
+  meta_data = meta,
+  label_colnames = c("sample_id", "cell_type")
+)
+
+# Average scores
+ilisi_mean <- mean(lisi_res$sample_id, na.rm = TRUE)
+clisi_mean <- mean(lisi_res$cell_type, na.rm = TRUE)
+
+cat("Mean iLISI (sample_id):", ilisi_mean, "\n")
+cat("Mean cLISI (cell_type):", clisi_mean, "\n")
+```
+
+
+```{r}
+kidney_sce <- readH5AD("~/Desktop/adata_kidney_non_enrich_qc_r_with_counts.h5ad")
+
+set.seed(123)
+
+kidney_sce <- logNormCounts(kidney_sce)
+
+dec <- modelGeneVar(kidney_sce)
+chosen_hvgs <- getTopHVGs(dec, n = 2000)
+
+kidney_mnn <- fastMNN(
+  kidney_sce,
+  batch = kidney_sce$sample_id,
+  subset.row = chosen_hvgs
+)
+```
+
+
+```{r}
+colData(kidney_mnn)$cell_type <- colData(kidney_sce)$cell_type
+colData(kidney_mnn)$sample_id <- colData(kidney_sce)$sample_id
+
+metadata(kidney_mnn)$merge.info <- NULL
+
+writeH5AD(
+  kidney_mnn,
+  "~/Desktop/kidney_non_enrich_fastmnn.h5ad"
+)
+```
+
+```{r}
+# Check reduced dimensions
+
+reducedDimNames(kidney_mnn)
+
+corrected <- reducedDim(kidney_mnn, "corrected")
+
+write.csv(
+  corrected,
+  "~/Desktop/kidney_non_enrich_fastmnn_corrected.csv",
+  row.names = TRUE
+)
+
+meta <- as.data.frame(colData(kidney_mnn))
+
+write.csv(
+  meta,
+  "~/Desktop/kidney_non_enrich_fastmnn_metadata.csv",
+  row.names = TRUE
+)
+```
+
+```{r}
+library(scater)
+library(igraph)
+
+set.seed(123)
+
+kidney_mnn <- runUMAP(
+  kidney_mnn,
+  dimred = "corrected",
+  name = "UMAP_corrected"
+)
+
+g <- buildSNNGraph(
+  kidney_mnn,
+  use.dimred = "corrected",
+  k = 20
+)
+
+cl <- cluster_louvain(g)$membership
+
+meta_out <- as.data.frame(colData(kidney_mnn))
+meta_out$cell_id <- rownames(meta_out)
+meta_out$cluster <- as.factor(cl)
+
+corrected_out <- as.data.frame(reducedDim(kidney_mnn, "corrected"))
+colnames(corrected_out) <- paste0("MNN_", seq_len(ncol(corrected_out)))
+corrected_out$cell_id <- rownames(corrected_out)
+
+umap_out <- as.data.frame(reducedDim(kidney_mnn, "UMAP_corrected"))
+colnames(umap_out) <- c("UMAP1", "UMAP2")
+umap_out$cell_id <- rownames(umap_out)
+
+export_out <- merge(meta_out, corrected_out, by = "cell_id")
+export_out <- merge(export_out, umap_out, by = "cell_id")
+
+write.csv(
+  export_out,
+  "~/Desktop/kidney_non_enrich_fastmnn_for_python.csv",
+  row.names = FALSE
+)
+```
+
+
+```{r}
+kidney_nonenrich_metrics <- data.frame(
+  method = c("Harmony", "scVI", "Seurat", "fastMNN"),
+  iLISI = c(
+    0.25395048,
+    0.23831177,
+    0.2672799229621887,
+    0.20827379822731018
+  ),
+  cLISI = c(
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ),
+  ARI = c(
+    0.09462758560939816,
+    0.17712000565754263,
+    0.06808669473066935,
+    0.0803363170582983
+  ),
+  NMI = c(
+    0.36601782662772403,
+    0.4445019267354452,
+    0.3553333275641123,
+    0.3687695896300286
+  )
+)
+
+kidney_nonenrich_metrics
+```
+
+
+
+
+
+
+
+
+
+
