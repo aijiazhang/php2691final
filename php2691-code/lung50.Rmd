@@ -1,0 +1,279 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-05-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(zellkonverter)
+library(SingleCellExperiment)
+
+lung50_1 <- readH5AD("~/Desktop/adata_lung_50_rep1.h5ad")
+lung50_2 <- readH5AD("~/Desktop/adata_lung_50_rep2.h5ad")
+lung50_3 <- readH5AD("~/Desktop/adata_lung_50_rep3.h5ad")
+```
+
+
+```{r}
+meta_lung50_1 <- as.data.frame(colData(lung50_1))
+
+raw_counts_lung50_1 <- assay(lung50_1, "counts")
+
+lung50_1_seurat <- CreateSeuratObject(
+  counts = raw_counts_lung50_1,
+  meta.data = meta_lung50_1
+)
+
+lung50_1_list <- SplitObject(lung50_1_seurat, split.by = "batch")
+
+lung50_1_list <- lapply(lung50_1_list, function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(
+    x,
+    selection.method = "vst",
+    nfeatures = 2000,
+    verbose = FALSE
+  )
+  x
+})
+
+features_lung50_1 <- SelectIntegrationFeatures(object.list = lung50_1_list)
+
+lung50_1_list <- lapply(lung50_1_list, function(x) {
+  x <- ScaleData(x, features = features_lung50_1, verbose = FALSE)
+  x <- RunPCA(x, features = features_lung50_1, verbose = FALSE)
+  x
+})
+
+lung50_1_anchors <- FindIntegrationAnchors(
+  object.list = lung50_1_list,
+  anchor.features = features_lung50_1,
+  reduction = "rpca"
+)
+
+lung50_1_integrated <- IntegrateData(anchorset = lung50_1_anchors)
+
+DefaultAssay(lung50_1_integrated) <- "integrated"
+
+lung50_1_integrated <- ScaleData(lung50_1_integrated, verbose = FALSE)
+lung50_1_integrated <- RunPCA(lung50_1_integrated, npcs = 30, verbose = FALSE)
+lung50_1_integrated <- RunUMAP(lung50_1_integrated, reduction = "pca", dims = 1:30)
+lung50_1_integrated <- FindNeighbors(lung50_1_integrated, reduction = "pca", dims = 1:30)
+lung50_1_integrated <- FindClusters(lung50_1_integrated, resolution = 0.5)
+```
+
+
+```{r}
+meta_out_lung50_1 <- lung50_1_integrated@meta.data
+meta_out_lung50_1$cell_id <- rownames(meta_out_lung50_1)
+meta_out_lung50_1$cluster <- meta_out_lung50_1$integrated_snn_res.0.5
+
+pca_out_lung50_1 <- as.data.frame(Embeddings(lung50_1_integrated, "pca")[, 1:30])
+colnames(pca_out_lung50_1) <- paste0("PC_", 1:30)
+pca_out_lung50_1$cell_id <- rownames(pca_out_lung50_1)
+
+export_out_lung50_1 <- merge(meta_out_lung50_1, pca_out_lung50_1, by = "cell_id")
+
+write.csv(
+  export_out_lung50_1,
+  "~/Desktop/lung_seurat_50_rep1.csv",
+  row.names = FALSE
+)
+
+```
+
+
+```{r}
+meta_lung50_2 <- as.data.frame(colData(lung50_2))
+
+raw_counts_lung50_2 <- assay(lung50_2, "counts")
+
+lung50_2_seurat <- CreateSeuratObject(
+  counts = raw_counts_lung50_2,
+  meta.data = meta_lung50_2
+)
+
+
+lung50_2_list <- SplitObject(lung50_2_seurat, split.by = "batch")
+
+
+lung50_2_list <- lapply(lung50_2_list, function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(
+    x,
+    selection.method = "vst",
+    nfeatures = 2000,
+    verbose = FALSE
+  )
+  x
+})
+
+features_lung50_2 <- SelectIntegrationFeatures(object.list = lung50_2_list)
+
+lung50_2_list <- lapply(lung50_2_list, function(x) {
+  x <- ScaleData(x, features = features_lung50_2, verbose = FALSE)
+  x <- RunPCA(x, features = features_lung50_2, verbose = FALSE)
+  x
+})
+
+lung50_2_anchors <- FindIntegrationAnchors(
+  object.list = lung50_2_list,
+  anchor.features = features_lung50_2,
+  reduction = "rpca"
+)
+
+lung50_2_integrated <- IntegrateData(anchorset = lung50_2_anchors)
+
+DefaultAssay(lung50_2_integrated) <- "integrated"
+
+lung50_2_integrated <- ScaleData(lung50_2_integrated, verbose = FALSE)
+lung50_2_integrated <- RunPCA(lung50_2_integrated, npcs = 30, verbose = FALSE)
+lung50_2_integrated <- RunUMAP(lung50_2_integrated, reduction = "pca", dims = 1:30)
+lung50_2_integrated <- FindNeighbors(lung50_2_integrated, reduction = "pca", dims = 1:30)
+lung50_2_integrated <- FindClusters(lung50_2_integrated, resolution = 0.5)
+```
+
+
+
+```{r}
+meta_out_lung50_2 <- lung50_2_integrated@meta.data
+meta_out_lung50_2$cell_id <- rownames(meta_out_lung50_2)
+meta_out_lung50_2$cluster <- meta_out_lung50_2$integrated_snn_res.0.5
+
+pca_out_lung50_2 <- as.data.frame(Embeddings(lung50_2_integrated, "pca")[, 1:30])
+colnames(pca_out_lung50_2) <- paste0("PC_", 1:30)
+pca_out_lung50_2$cell_id <- rownames(pca_out_lung50_2)
+
+export_out_lung50_2 <- merge(meta_out_lung50_2, pca_out_lung50_2, by = "cell_id")
+
+write.csv(
+  export_out_lung50_2,
+  "~/Desktop/lung_seurat_50_rep2.csv",
+  row.names = FALSE
+)
+
+```
+
+
+```{r}
+meta_lung50_3 <- as.data.frame(colData(lung50_3))
+
+raw_counts_lung50_3 <- assay(lung50_3, "counts")
+
+lung50_3_seurat <- CreateSeuratObject(
+  counts = raw_counts_lung50_3,
+  meta.data = meta_lung50_3
+)
+
+lung50_3_list <- SplitObject(lung50_3_seurat, split.by = "batch")
+
+lung50_3_list <- lapply(lung50_3_list, function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(
+    x,
+    selection.method = "vst",
+    nfeatures = 2000,
+    verbose = FALSE
+  )
+  x
+})
+
+features_lung50_3 <- SelectIntegrationFeatures(object.list = lung50_3_list)
+
+lung50_3_list <- lapply(lung50_3_list, function(x) {
+  x <- ScaleData(x, features = features_lung50_3, verbose = FALSE)
+  x <- RunPCA(x, features = features_lung50_3, verbose = FALSE)
+  x
+})
+
+lung50_3_anchors <- FindIntegrationAnchors(
+  object.list = lung50_3_list,
+  anchor.features = features_lung50_3,
+  reduction = "rpca"
+)
+
+lung50_3_integrated <- IntegrateData(anchorset = lung50_3_anchors)
+
+DefaultAssay(lung50_3_integrated) <- "integrated"
+
+lung50_3_integrated <- ScaleData(lung50_3_integrated, verbose = FALSE)
+lung50_3_integrated <- RunPCA(lung50_3_integrated, npcs = 30, verbose = FALSE)
+lung50_3_integrated <- RunUMAP(lung50_3_integrated, reduction = "pca", dims = 1:30)
+lung50_3_integrated <- FindNeighbors(lung50_3_integrated, reduction = "pca", dims = 1:30)
+lung50_3_integrated <- FindClusters(lung50_3_integrated, resolution = 0.5)
+```
+
+
+
+```{r}
+meta_out_lung50_3 <- lung50_3_integrated@meta.data
+meta_out_lung50_3$cell_id <- rownames(meta_out_lung50_3)
+meta_out_lung50_3$cluster <- meta_out_lung50_3$integrated_snn_res.0.5
+
+pca_out_lung50_3 <- as.data.frame(Embeddings(lung50_3_integrated, "pca")[, 1:30])
+colnames(pca_out_lung50_3) <- paste0("PC_", 1:30)
+pca_out_lung50_3$cell_id <- rownames(pca_out_lung50_3)
+
+export_out_lung50_3 <- merge(meta_out_lung50_3, pca_out_lung50_3, by = "cell_id")
+
+write.csv(
+  export_out_lung50_3,
+  "~/Desktop/lung_seurat_50_rep3.csv",
+  row.names = FALSE
+)
+
+```
+
+
+```{r}
+set.seed(123)
+
+lung_list <- list(
+  lung50_1 = lung50_1,
+  lung50_2 = lung50_2,
+  lung50_3 = lung50_3
+)
+
+lung_mnn_list <- list()
+
+for (nm in names(lung_list)) {
+  
+  sce_obj <- lung_list[[nm]]
+  
+  sce_obj <- logNormCounts(sce_obj)
+  dec_obj <- modelGeneVar(sce_obj)
+  chosen_hvgs_obj <- getTopHVGs(dec_obj, n = 2000)
+  
+  mnn_obj <- fastMNN(
+    sce_obj,
+    batch = sce_obj$batch,
+    subset.row = chosen_hvgs_obj
+  )
+  
+  colData(mnn_obj)$cell_type <- colData(sce_obj)$cell_type
+  
+  lung_mnn_list[[nm]] <- mnn_obj
+  
+  metadata(mnn_obj)$merge.info <- NULL
+  out_path <- paste0("~/Desktop/", nm, "_fastmnn.h5ad")
+  writeH5AD(mnn_obj, out_path)
+  
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
